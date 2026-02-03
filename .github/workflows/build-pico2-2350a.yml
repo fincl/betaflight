@@ -59,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          make "${{ inputs.target }}" EXTRA_FLAGS="-DUSE_MAG" 2>&1 | tee build.log
+          make "${{ inputs.target }}" EXTRA_FLAGS="-DUSE_MAG -DUSE_GPS" 2>&1 | tee build.log
           
       - name: Show build failure tail
         if: failure()
