@@ -11,10 +11,6 @@ on:
         description: "Branch, tag, or commit in fincl/config to fetch config.h from"
         required: true
         default: "master"
-      extra_defines:
-        description: "Extra preprocessor defines passed to the build (e.g. -DUSE_MAG)"
-        required: true
-        default: "-DUSE_MAG"
 
 jobs:
   build:
@@ -59,21 +55,68 @@ jobs:
           echo "Confirmed custom config.h (first 80 lines):"
           sed -n '1,80p' src/config/configs/PICO2_2350A/config.h
 
-      - name: Build firmware (with extra defines)
+      - name: Enable Magnetometer (HMC5883L) in config.h
+        shell: bash
+        run: |
+          set -euo pipefail
+          CFG="src/config/configs/PICO2_2350A/config.h"
+
+          echo "Patching $CFG to enable MAG (HMC5883L)..."
+
+          # Helper: add a line only if it's not already present (exact match)
+          add_line_once() {
+            local line="$1"
+            if ! grep -qxF "$line" "$CFG"; then
+              echo "$line" >> "$CFG"
+            fi
+          }
+
+          {
+            echo ""
+            echo "// ===== Added by CI workflow: enable magnetometer ====="
+          } >> "$CFG"
+
+          # Core MAG feature
+          add_line_once "#define USE_MAG"
+
+          # HMC5883L driver macro used by Betaflight-family codebases
+          # (the implementation file is often compass_hmc5883l.c)
+          add_line_once "#define USE_MAG_HMC5883"
+
+          # Ensure MAG is on I2C; choose BUS_I2C1 by default (matches most target conventions)
+          # If your board uses a different I2C bus for the mag, change BUS_I2C1 accordingly.
+          add_line_once "#define MAG_I2C_BUS BUS_I2C1"
+
+          echo ""
+          echo "==== Patched config.h MAG block (grep) ===="
+          grep -nE "USE_MAG|USE_MAG_HMC5883|MAG_I2C_BUS" "$CFG" || true
+
+      - name: Build firmware
         shell: bash
         run: |
           set -o pipefail
-          echo "Building ${{ inputs.target }} with EXTRA_FLAGS='${{ inputs.extra_defines }}'"
+          make "${{ inputs.target }}" V=1 2>&1 | tee build.log
 
-          # Betaflight's build system honors EXTRA_FLAGS for passing extra -D defines.
-          make "${{ inputs.target }}" EXTRA_FLAGS="${{ inputs.extra_defines }}" V=1 2>&1 | tee build.log
+      - name: Verify magnetometer was enabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          CFG="src/config/configs/PICO2_2350A/config.h"
 
-          echo "Verifying that '${{ inputs.extra_defines }}' was applied in compile commands..."
-          if ! grep -q -- "${{ inputs.extra_defines }}" build.log; then
-            echo "ERROR: '${{ inputs.extra_defines }}' not found in build.log. Magnetometer will NOT be included in the firmware."
-            echo "Hint: ensure the build system is honoring EXTRA_FLAGS and that verbose output (V=1) is enabled."
+          echo "Verifying config.h contains magnetometer defines..."
+          grep -nE "^\s*#define\s+USE_MAG\b" "$CFG"
+          grep -nE "^\s*#define\s+USE_MAG_HMC5883\b" "$CFG"
+          grep -nE "^\s*#define\s+MAG_I2C_BUS\b" "$CFG"
+
+          echo ""
+          echo "Verifying compass driver got compiled (build.log contains compass_hmc5883l.c)..."
+          if ! grep -q "compass_hmc5883l.c" build.log; then
+            echo "ERROR: compass_hmc5883l.c not found in build.log."
+            echo "This usually means the driver wasn't built into this target."
             exit 1
           fi
+
+          echo "OK: MAG defines present and compass_hmc5883l.c appears in build."
 
       - name: Show build failure tail
         if: failure()
