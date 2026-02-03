@@ -26,7 +26,7 @@ jobs:
       - name: Checkout your config repo into src/config
         uses: actions/checkout@v4
         with:
-          repository: YOUR_GITHUB_USERNAME/config
+          repository: fincl/config
           ref: ${{ inputs.config_ref }}
           path: src/config
           fetch-depth: 0
