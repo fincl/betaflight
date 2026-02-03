@@ -10,7 +10,7 @@ on:
       config_ref:
         description: "Branch, tag, or commit in your betaflight/config fork"
         required: true
-        default: "PICO2_2350A"
+        default: "master"
 
 jobs:
   build:
