@@ -8,7 +8,7 @@ on:
         required: true
         default: "PICO2_2350A"
       config_ref:
-        description: "Branch, tag, or commit in your betaflight/config fork"
+        description: "Branch, tag, or commit in your fincl/config fork"
         required: true
         default: "master"
 
@@ -22,21 +22,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # This is the key step: we put *your* config repo into ./src/config
-      - name: Checkout your config repo into src/config
-        uses: actions/checkout@v4
-        with:
-          repository: fincl/config
-          ref: ${{ inputs.config_ref }}
-          path: src/config
-          fetch-depth: 0
-
       - name: Install prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y make git gcc g++ python3
+          sudo apt-get install -y make git gcc g++ python3 curl
 
-      # Betaflight commonly expects you to install the ARM toolchain into ./tools via make arm_sdk_install
       - name: Install ARM toolchain (Betaflight)
         run: |
           make arm_sdk_install
@@ -45,11 +35,18 @@ jobs:
         run: |
           make pico_sdk
 
-
-      # Hydrate target list / ensure build system recognizes configs (uses ./src/config)
       - name: Hydrate configs
         run: |
           make configs
+
+      - name: Overlay custom config.h
+        run: |
+          curl -L \
+            "https://raw.githubusercontent.com/fincl/config/${{ inputs.config_ref }}/configs/PICO2_2350A/config.h" \
+            -o "src/config/configs/PICO2_2350A/config.h"
+
+          echo "Confirmed custom config.h (first 60 lines):"
+          sed -n '1,60p' src/config/configs/PICO2_2350A/config.h
 
       - name: Build firmware
         run: |
