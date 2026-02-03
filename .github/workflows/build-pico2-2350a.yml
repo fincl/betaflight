@@ -8,7 +8,7 @@ on:
         required: true
         default: "PICO2_2350A"
       config_ref:
-        description: "Branch, tag, or commit in your fincl/config fork"
+        description: "Branch, tag, or commit in fincl/config to fetch config.h from"
         required: true
         default: "master"
 
@@ -25,7 +25,10 @@ jobs:
       - name: Install prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y make git gcc g++ python3 curl
+          sudo apt-get install -y \
+            make git gcc g++ python3 curl \
+            cmake ninja-build pkg-config \
+            bzip2 xz-utils unzip
 
       - name: Install ARM toolchain (Betaflight)
         run: |
@@ -45,12 +48,20 @@ jobs:
             "https://raw.githubusercontent.com/fincl/config/${{ inputs.config_ref }}/configs/PICO2_2350A/config.h" \
             -o "src/config/configs/PICO2_2350A/config.h"
 
-          echo "Confirmed custom config.h (first 60 lines):"
-          sed -n '1,60p' src/config/configs/PICO2_2350A/config.h
+          echo "Confirmed custom config.h (first 80 lines):"
+          sed -n '1,80p' src/config/configs/PICO2_2350A/config.h
 
       - name: Build firmware
+        shell: bash
         run: |
-          make "${{ inputs.target }}"
+          set -o pipefail
+          make "${{ inputs.target }}" 2>&1 | tee build.log
+
+      - name: Show build failure tail
+        if: failure()
+        run: |
+          echo "===== LAST 200 LINES OF build.log ====="
+          tail -n 200 build.log
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
@@ -60,4 +71,5 @@ jobs:
             obj/*.hex
             obj/*.bin
             obj/*.elf
+            build.log
           if-no-files-found: error
