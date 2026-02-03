@@ -41,6 +41,11 @@ jobs:
         run: |
           make arm_sdk_install
 
+      - name: Hydrate Pico SDK
+        run: |
+          make pico_sdk
+
+
       # Hydrate target list / ensure build system recognizes configs (uses ./src/config)
       - name: Hydrate configs
         run: |
