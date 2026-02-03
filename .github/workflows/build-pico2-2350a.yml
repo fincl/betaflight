@@ -67,13 +67,20 @@ jobs:
           echo "===== LAST 200 LINES OF build.log ====="
           tail -n 200 build.log
 
+      - name: List build outputs
+        if: always()
+        run: |
+          echo "==== firmware outputs under obj/ ===="
+          find obj -type f \( -name "*.uf2" -o -name "*.elf" -o -name "*.bin" -o -name "*.hex" \) -print | sort || true
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: betaflight-${{ inputs.target }}-firmware
           path: |
-            obj/*.hex
-            obj/*.bin
-            obj/*.elf
             build.log
+            obj/**/*.uf2
+            obj/**/*.elf
+            obj/**/*.bin
+            obj/**/*.hex
           if-no-files-found: error
