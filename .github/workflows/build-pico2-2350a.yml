@@ -11,6 +11,10 @@ on:
         description: "Branch, tag, or commit in fincl/config to fetch config.h from"
         required: true
         default: "master"
+      extra_defines:
+        description: "Extra compiler defines (e.g. -DUSE_MAG -DUSE_GPS). Default enables magnetometer support."
+        required: false
+        default: "-DUSE_MAG"
 
 jobs:
   build:
@@ -55,17 +59,33 @@ jobs:
           echo "Confirmed custom config.h (first 80 lines):"
           sed -n '1,80p' src/config/configs/PICO2_2350A/config.h
 
-      - name: Build firmware
+      - name: Build firmware (with magnetometer support)
         shell: bash
         run: |
-          set -o pipefail
-          make "${{ inputs.target }}" CFLAGS_EXTRA="-DUSE_MAG" CPPFLAGS_EXTRA="-DUSE_MAG" V=1 2>&1 | tee build.log
-          
+          set -euo pipefail
+
+          echo "Building target: ${{ inputs.target }}"
+          echo "Using extra defines: ${{ inputs.extra_defines }}"
+
+          # Use both to be robust across build systems/MCU ports
+          make "${{ inputs.target }}" \
+            CFLAGS_EXTRA="${{ inputs.extra_defines }}" \
+            CPPFLAGS_EXTRA="${{ inputs.extra_defines }}" \
+            V=1 2>&1 | tee build.log
+
+          echo "Verifying that USE_MAG was applied in compile commands..."
+          if ! grep -q -- "-DUSE_MAG" build.log; then
+            echo "ERROR: -DUSE_MAG not found in build.log. Magnetometer will NOT be included in the firmware."
+            echo "Hint: check that inputs.extra_defines contains -DUSE_MAG and that the build system is honoring *_EXTRA."
+            exit 1
+          fi
+          echo "OK: -DUSE_MAG found in build.log."
+
       - name: Show build failure tail
         if: failure()
         run: |
           echo "===== LAST 200 LINES OF build.log ====="
-          tail -n 200 build.log
+          tail -n 200 build.log || true
 
       - name: List build outputs
         if: always()
