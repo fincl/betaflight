@@ -11,10 +11,6 @@ on:
         description: "Branch, tag, or commit in fincl/config to fetch config.h from"
         required: true
         default: "master"
-      extra_defines:
-        description: "Extra compiler defines (e.g. -DUSE_MAG -DUSE_GPS). Default enables magnetometer support."
-        required: false
-        default: "-DUSE_MAG"
 
 jobs:
   build:
@@ -59,33 +55,76 @@ jobs:
           echo "Confirmed custom config.h (first 80 lines):"
           sed -n '1,80p' src/config/configs/PICO2_2350A/config.h
 
-      - name: Build firmware (with magnetometer support)
+      - name: Patch config.h to enable magnetometer
+        shell: bash
+        run: |
+          set -euo pipefail
+          CFG="src/config/configs/PICO2_2350A/config.h"
+
+          echo "---- Patching $CFG to enable magnetometer (USE_MAG) ----"
+
+          # Helper to add a define only if it's not already present (as define or commented define).
+          add_define() {
+            local define_line="$1"
+            local macro_name
+            macro_name="$(echo "$define_line" | awk '{print $2}')"
+            if grep -Eq "^[[:space:]]*#define[[:space:]]+$macro_name([[:space:]]+|$)" "$CFG"; then
+              echo "Already present: $macro_name"
+            else
+              echo "$define_line" >> "$CFG"
+              echo "Added: $define_line"
+            fi
+          }
+
+          echo "" >> "$CFG"
+          echo "// ---- Added by GitHub Actions to enable magnetometer support ----" >> "$CFG"
+
+          # Core magnetometer feature gate
+          add_define "#define USE_MAG"
+
+          # Enable common I2C mag drivers so 'mag_hardware' options exist in CLI.
+          # (Pick the one you actually have in the CLI later, e.g. QMC5883 / HMC5883 / LIS3MDL, etc.)
+          add_define "#define USE_MAG_QMC5883"
+          add_define "#define USE_MAG_HMC5883"
+          add_define "#define USE_MAG_LIS3MDL"
+          add_define "#define USE_MAG_LIS2MDL"
+          add_define "#define USE_MAG_AK8963"
+
+          echo ""
+          echo "---- Final magnetometer-related lines in config.h ----"
+          grep -nE "^[[:space:]]*#define[[:space:]]+USE_MAG($|[[:space:]])|^[[:space:]]*#define[[:space:]]+USE_MAG_" "$CFG" || true
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          set -o pipefail
+          make "${{ inputs.target }}" V=1 2>&1 | tee build.log
+
+      - name: Verify magnetometer was compiled in
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Building target: ${{ inputs.target }}"
-          echo "Using extra defines: ${{ inputs.extra_defines }}"
+          echo "Verifying magnetometer support was compiled (looking for compass/mag sources in build.log)..."
 
-          # Use both to be robust across build systems/MCU ports
-          make "${{ inputs.target }}" \
-            CFLAGS_EXTRA="${{ inputs.extra_defines }}" \
-            CPPFLAGS_EXTRA="${{ inputs.extra_defines }}" \
-            V=1 2>&1 | tee build.log
-
-          echo "Verifying that USE_MAG was applied in compile commands..."
-          if ! grep -q -- "-DUSE_MAG" build.log; then
-            echo "ERROR: -DUSE_MAG not found in build.log. Magnetometer will NOT be included in the firmware."
-            echo "Hint: check that inputs.extra_defines contains -DUSE_MAG and that the build system is honoring *_EXTRA."
+          # This is intentionally NOT checking for -DUSE_MAG (your build system doesn't propagate *_EXTRA into gcc flags).
+          # Instead, we check for compilation of compass/mag related C files.
+          if grep -Eiq "(sensors/compass\.c|drivers/compass/|compass_|mag_)" build.log; then
+            echo "OK: compass/mag code appears in the build output."
+          else
+            echo "ERROR: did not see compass/mag sources compiled in build.log."
+            echo "If you still get 'MAG: Not included in build', the target may be excluding mag at a deeper level."
+            echo "===== HINTS ====="
+            echo "1) Confirm the patched config.h is actually used by the build."
+            echo "2) Search build.log for which config.h path is being included (look for -I./src/config/configs/PICO2_2350A)."
             exit 1
           fi
-          echo "OK: -DUSE_MAG found in build.log."
 
       - name: Show build failure tail
         if: failure()
         run: |
           echo "===== LAST 200 LINES OF build.log ====="
-          tail -n 200 build.log || true
+          tail -n 200 build.log
 
       - name: List build outputs
         if: always()
