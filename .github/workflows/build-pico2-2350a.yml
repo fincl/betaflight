@@ -1,0 +1,61 @@
+name: Build Betaflight (PICO2_2350A custom config)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target config name (must match a folder in src/config/configs)"
+        required: true
+        default: "PICO2_2350A"
+      config_ref:
+        description: "Branch, tag, or commit in your betaflight/config fork"
+        required: true
+        default: "pico2-2350a-custom"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Betaflight firmware source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # This is the key step: we put *your* config repo into ./src/config
+      - name: Checkout your config repo into src/config
+        uses: actions/checkout@v4
+        with:
+          repository: YOUR_GITHUB_USERNAME/config
+          ref: ${{ inputs.config_ref }}
+          path: src/config
+          fetch-depth: 0
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make git gcc g++ python3
+
+      # Betaflight commonly expects you to install the ARM toolchain into ./tools via make arm_sdk_install
+      - name: Install ARM toolchain (Betaflight)
+        run: |
+          make arm_sdk_install
+
+      # Hydrate target list / ensure build system recognizes configs (uses ./src/config)
+      - name: Hydrate configs
+        run: |
+          make configs
+
+      - name: Build firmware
+        run: |
+          make "${{ inputs.target }}"
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: betaflight-${{ inputs.target }}-firmware
+          path: |
+            obj/*.hex
+            obj/*.bin
+            obj/*.elf
+          if-no-files-found: error
