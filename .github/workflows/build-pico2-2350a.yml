@@ -38,6 +38,10 @@ jobs:
         run: |
           make pico_sdk
 
+      - name: Install picotool
+        run: |
+          make picotool_install
+
       - name: Hydrate configs
         run: |
           make configs
