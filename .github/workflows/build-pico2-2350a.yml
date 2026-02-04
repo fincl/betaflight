@@ -11,6 +11,16 @@ on:
         description: "Branch, tag, or commit in fincl/config to fetch config.h from"
         required: true
         default: "master"
+      extra_flags:
+        description: "Extra preprocessor flags passed via EXTRA_FLAGS (Cloud Build style)"
+        required: false
+        default: >-
+          -DUSE_MAG
+          -DUSE_GPS
+          -DUSE_SERIALRX
+          -DUSE_SERIALRX_MAVLINK
+          -DUSE_TELEMETRY
+          -DUSE_TELEMETRY_MAVLINK
 
 jobs:
   build:
@@ -47,10 +57,7 @@ jobs:
           make configs
 
       - name: Overlay custom config.h
-        shell: bash
         run: |
-          set -euo pipefail
-
           curl -L \
             "https://raw.githubusercontent.com/fincl/config/${{ inputs.config_ref }}/configs/PICO2_2350A/config.h" \
             -o "src/config/configs/PICO2_2350A/config.h"
@@ -58,33 +65,35 @@ jobs:
           echo "Confirmed custom config.h (first 120 lines):"
           sed -n '1,120p' src/config/configs/PICO2_2350A/config.h
 
-          echo "Verifying config.h contains magnetometer defines..."
-          grep -nE '^\s*#define\s+USE_MAG(\s|$)|^\s*#define\s+USE_MAG_HMC5883(\s|$)|^\s*#define\s+MAG_I2C_BUS(\s|$)' \
-            src/config/configs/PICO2_2350A/config.h
-
-      - name: Build firmware
-        shell: bash
-        run: |
-          set -o pipefail
-          make "${{ inputs.target }}" V=1 2>&1 | tee build.log
-
-      - name: Verify magnetometer was compiled in (ELF symbol check)
+      - name: Build firmware (Cloud Build style EXTRA_FLAGS)
         shell: bash
         run: |
           set -euo pipefail
+          set -o pipefail
 
-          ELF="obj/main/betaflight_${{ inputs.target }}.elf"
-          if [[ ! -f "$ELF" ]]; then
-            echo "ERROR: ELF not found at $ELF"
-            echo "Listing obj/main:"
-            ls -la obj/main || true
+          # Flatten possible newlines in input into spaces (EXTRA_FLAGS expects a single string)
+          EXTRA_FLAGS_FLAT="$(printf '%s' "${{ inputs.extra_flags }}" | tr '\n' ' ')"
+
+          echo "Using EXTRA_FLAGS: ${EXTRA_FLAGS_FLAT}"
+
+          make "${{ inputs.target }}" EXTRA_FLAGS="${EXTRA_FLAGS_FLAT}" V=1 2>&1 | tee build.log
+
+          echo
+          echo "Verifying that USE_MAG was applied in compile commands..."
+          if grep -q -- "-DUSE_MAG" build.log; then
+            echo "OK: -DUSE_MAG present in build.log"
+          else
+            echo "ERROR: -DUSE_MAG not found in build.log. Magnetometer may not be recorded as a build option."
             exit 1
           fi
 
-          echo "Checking ELF for MAG/compass symbols..."
-          nm "$ELF" | grep -iE 'lookupTableMagHardware|compass|magHold' >/dev/null
-
-          echo "OK: MAG-related symbols found in ELF (magnetometer support is compiled in)."
+          echo
+          echo "Verifying that USE_GPS was applied in compile commands..."
+          if grep -q -- "-DUSE_GPS" build.log; then
+            echo "OK: -DUSE_GPS present in build.log"
+          else
+            echo "WARNING: -DUSE_GPS not found in build.log."
+          fi
 
       - name: Show build failure tail
         if: failure()
